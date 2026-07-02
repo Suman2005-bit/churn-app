@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -16,7 +18,6 @@ def train_model():
     df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
     df.dropna(inplace=True)
     df.drop('customerID', axis=1, inplace=True)
-    le = LabelEncoder()
     encoders = {}
     for col in df.select_dtypes(include='object').columns:
         encoders[col] = LabelEncoder()
@@ -29,12 +30,11 @@ def train_model():
 
 model, feature_cols, encoders = train_model()
 
-tab1, tab2 = st.tabs(["🔍 Single Customer", "📁 Bulk CSV Upload"])
+tab1, tab2, tab3 = st.tabs(["🔍 Single Customer", "📁 Bulk CSV Upload", "📊 Analytics"])
 
-# ─── TAB 1: Single Customer Predictor ───
+# ─── TAB 1: Single Customer ───
 with tab1:
     st.subheader("Predict churn for one customer")
-    st.markdown("Fill in the customer details below:")
 
     col1, col2, col3 = st.columns(3)
 
@@ -65,7 +65,6 @@ with tab1:
         ])
         monthly_charges = st.slider("Monthly Charges (₹)", 0, 5000, 999)
         total_charges = monthly_charges * tenure
-
         st.markdown(f"**Total Charges (auto):** ₹{total_charges}")
 
     if st.button("🔍 Predict Churn", use_container_width=True):
@@ -92,15 +91,31 @@ with tab1:
         }
 
         df_input = pd.DataFrame([input_data])
-
         for col in df_input.select_dtypes(include='object').columns:
             if col in encoders:
                 df_input[col] = encoders[col].transform(df_input[col])
 
         prob = model.predict_proba(df_input)[0][1]
-        pred = model.predict(df_input)[0]
 
         st.markdown("---")
+
+        # Gauge chart
+        fig_gauge = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=round(prob * 100, 1),
+            title={'text': "Churn Risk %"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#e74c3c"},
+                'steps': [
+                    {'range': [0, 40], 'color': "#2ecc71"},
+                    {'range': [40, 70], 'color': "#f39c12"},
+                    {'range': [70, 100], 'color': "#e74c3c"},
+                ]
+            }
+        ))
+        fig_gauge.update_layout(height=300)
+        st.plotly_chart(fig_gauge, use_container_width=True)
 
         if prob >= 0.7:
             st.error(f"⚠️ High Churn Risk: {prob*100:.1f}%")
@@ -109,47 +124,39 @@ with tab1:
         else:
             st.success(f"✅ Low Churn Risk: {prob*100:.1f}%")
 
-        # Reasons
         st.subheader("📌 Risk Factors")
         reasons = []
         if contract == "Month-to-month":
-            reasons.append("📋 Month-to-month contract — easiest to leave")
+            reasons.append("📋 Month-to-month contract")
         if tenure < 6:
-            reasons.append("⏱️ Low tenure — still evaluating alternatives")
+            reasons.append("⏱️ Very low tenure")
         if monthly_charges > 3000:
-            reasons.append("💸 High monthly charges — price sensitive")
+            reasons.append("💸 High monthly charges")
         if internet_service == "Fiber optic":
-            reasons.append("📡 Fiber optic users churn more often")
+            reasons.append("📡 Fiber optic service")
         if online_security == "No":
-            reasons.append("🔓 No online security addon")
+            reasons.append("🔓 No online security")
         if tech_support == "No":
-            reasons.append("🛠️ No tech support addon")
+            reasons.append("🛠️ No tech support")
 
-        if reasons:
-            for r in reasons:
-                st.markdown(f"- {r}")
-        else:
-            st.markdown("- No major risk factors detected")
+        for r in reasons if reasons else ["✅ No major risk factors"]:
+            st.markdown(f"- {r}")
 
-        # Smart suggestions
         st.subheader("💡 Recommended Actions")
         if prob >= 0.7:
             st.markdown("""
-- 🎁 Offer **20% discount** for next 3 months
-- 📅 Suggest upgrade to **annual contract**
-- 📞 Schedule a **priority support call**
-- 🔒 Offer free **Online Security** addon
+- 🎁 Offer **20% discount** for 3 months
+- 📅 Upgrade to **annual contract**
+- 📞 **Priority support call**
+- 🔒 Free **Online Security** addon
             """)
         elif prob >= 0.4:
             st.markdown("""
-- 📧 Send a **retention email** with loyalty offer
-- 🎯 Suggest a **plan upgrade**
+- 📧 Send **retention email**
+- 🎯 Suggest **plan upgrade**
             """)
         else:
-            st.markdown("""
-- ✅ Customer is happy — no action needed
-- 💌 Send a **thank you loyalty reward**
-            """)
+            st.markdown("- ✅ No action needed — send loyalty reward")
 
 # ─── TAB 2: Bulk CSV ───
 with tab2:
@@ -158,13 +165,10 @@ with tab2:
 
     if uploaded_file:
         df = pd.read_csv(uploaded_file)
-        st.dataframe(df.head())
-
         df['TotalCharges'] = pd.to_numeric(df['TotalCharges'], errors='coerce')
         df.dropna(inplace=True)
         ids = df['customerID'].copy()
         df.drop('customerID', axis=1, inplace=True)
-
         if 'Churn' in df.columns:
             df.drop('Churn', axis=1, inplace=True)
 
@@ -188,12 +192,50 @@ with tab2:
             'Churn Probability', ascending=False)
         st.dataframe(result, use_container_width=True)
 
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.hist(probs * 100, bins=20, color='#e74c3c', edgecolor='white')
-        ax.set_xlabel('Churn Probability (%)')
-        ax.set_ylabel('Number of Customers')
-        ax.set_title('Churn Risk Distribution')
-        st.pyplot(fig)
+        fig = px.histogram(df, x='Churn Probability', nbins=20,
+                          color_discrete_sequence=['#e74c3c'],
+                          title='Churn Risk Distribution')
+        st.plotly_chart(fig, use_container_width=True)
 
         csv = result.to_csv(index=False)
         st.download_button("⬇️ Download Results", csv, "churn_predictions.csv", "text/csv")
+
+# ─── TAB 3: Analytics ───
+with tab3:
+    st.subheader("Dataset Analytics")
+    df_raw = pd.read_csv("WA_Fn-UseC_-Telco-Customer-Churn.csv")
+    df_raw['TotalCharges'] = pd.to_numeric(df_raw['TotalCharges'], errors='coerce')
+    df_raw.dropna(inplace=True)
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        # Churn by contract
+        fig1 = px.histogram(df_raw, x='Contract', color='Churn',
+                           barmode='group',
+                           title='Churn by Contract Type',
+                           color_discrete_map={'Yes': '#e74c3c', 'No': '#2ecc71'})
+        st.plotly_chart(fig1, use_container_width=True)
+
+        # Churn by internet service
+        fig3 = px.histogram(df_raw, x='InternetService', color='Churn',
+                           barmode='group',
+                           title='Churn by Internet Service',
+                           color_discrete_map={'Yes': '#e74c3c', 'No': '#2ecc71'})
+        st.plotly_chart(fig3, use_container_width=True)
+
+    with col2:
+        # Churn pie
+        churn_counts = df_raw['Churn'].value_counts()
+        fig2 = px.pie(values=churn_counts.values,
+                     names=churn_counts.index,
+                     title='Overall Churn Rate',
+                     color_discrete_sequence=['#2ecc71', '#e74c3c'])
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # Monthly charges vs tenure
+        fig4 = px.scatter(df_raw, x='tenure', y='MonthlyCharges',
+                         color='Churn',
+                         title='Tenure vs Monthly Charges',
+                         color_discrete_map={'Yes': '#e74c3c', 'No': '#2ecc71'})
+        st.plotly_chart(fig4, use_container_width=True)
