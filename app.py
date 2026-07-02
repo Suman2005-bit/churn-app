@@ -11,6 +11,25 @@ from sklearn.model_selection import train_test_split
 st.set_page_config(page_title="Churn Predictor", page_icon="📊", layout="wide")
 
 st.title("📊 Customer Churn Prediction Dashboard")
+# ─── LOGIN SYSTEM ───
+def check_password():
+    if "logged_in" not in st.session_state:
+        st.session_state.logged_in = False
+
+    if not st.session_state.logged_in:
+        st.title("🔒 Churn Predictor — Login")
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+
+        if st.button("Login"):
+            if username == "admin" and password == "churn123":
+                st.session_state.logged_in = True
+                st.rerun()
+            else:
+                st.error("Wrong username or password!")
+        st.stop()
+
+check_password()
 
 @st.cache_resource
 def train_model():
